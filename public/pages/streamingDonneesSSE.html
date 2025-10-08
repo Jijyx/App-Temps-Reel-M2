@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cotations Boursières en Temps Réel (SSE)</title>
+    <!-- Chargement de Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Configuration Tailwind pour un thème sombre et des couleurs spécifiques
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        'dark-bg': '#121212',
+                        'card-bg': '#1e1e1e',
+                        'primary': '#ffcc00', // Jaune/Or pour l'accent
+                        'success': '#4CAF50', // Vert pour la hausse
+                        'danger': '#f44336', // Rouge pour la baisse
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Styles pour les animations de pulse lors des changements de prix */
+        .animate-pulse-success { animation: pulse-success 0.3s ease-in-out; }
+        .animate-pulse-danger { animation: pulse-danger 0.3s ease-in-out; }
+
+        @keyframes pulse-success {
+            0% { transform: scale(1); box-shadow: 0 0 0 rgba(76, 175, 80, 0.5); }
+            50% { transform: scale(1.01); box-shadow: 0 0 8px rgba(76, 175, 80, 0.8); }
+            100% { transform: scale(1); box-shadow: none; }
+        }
+
+        @keyframes pulse-danger {
+            0% { transform: scale(1); box-shadow: 0 0 0 rgba(244, 67, 54, 0.5); }
+            50% { transform: scale(1.01); box-shadow: 0 0 8px rgba(244, 67, 54, 0.8); }
+            100% { transform: scale(1); box-shadow: none; }
+        }
+
+        /* Styles de base pour les alertes */
+        .alert {
+            position: relative;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            border-radius: 0.5rem;
+            color: #fff;
+            opacity: 1;
+            transition: opacity 0.6s;
+        }
+        .closebtn {
+            margin-left: 15px;
+            color: white;
+            font-weight: bold;
+            float: right;
+            font-size: 22px;
+            line-height: 20px;
+            cursor: pointer;
+            transition: 0.3s;
+        }
+        .closebtn:hover { color: #ccc; }
+    </style>
+</head>
+<body class="bg-dark-bg min-h-screen p-6 font-sans text-gray-100 antialiased">
+
+    <div class="max-w-6xl mx-auto">
+        <h1 class="text-4xl font-extrabold text-center mb-10 text-primary">
+            Cotations Boursières en Temps Réel
+        </h1>
+
+        <!-- FILTRES -->
+        <div id="filters" class="bg-card-bg p-6 rounded-xl shadow-lg mb-8 flex flex-wrap gap-4 items-end justify-center">
+            <label class="flex flex-col text-sm font-medium text-gray-300">
+                Symbole:
+                <input type="text" id="filter-symbol" placeholder="Ex: AAPL"
+                       class="mt-1 p-2 bg-dark-bg border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:ring-primary focus:border-primary">
+            </label>
+            <label class="flex flex-col text-sm font-medium text-gray-300">
+                Prix minimum:
+                <input type="number" id="filter-min-price" placeholder="0"
+                       class="mt-1 p-2 bg-dark-bg border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:ring-primary focus:border-primary">
+            </label>
+            <button id="apply-filters"
+                    class="h-10 px-4 bg-primary text-dark-bg font-bold rounded-lg shadow-md hover:bg-yellow-500 transition duration-150">
+                Appliquer les filtres
+            </button>
+        </div>
+
+        <!-- Section des Alertes (Market Alerts) -->
+        <div id="market_alerts" class="mb-8">
+            <!-- Les alertes seront insérées ici -->
+        </div>
+
+        <!-- Conteneur des Cotations -->
+        <div id="stock-quotes" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <!-- Les cartes des actions seront insérées ici par JavaScript -->
+        </div>
+    </div>
+
+    <script>
+        const eventSource = new EventSource('/streamingDonneesSSE/stream');
+        const stockQuotesDiv = document.getElementById('stock-quotes');
+        const stockElements = {}; 
+        const stockAlertsDiv = document.getElementById('market_alerts');
+
+        // éléments de filtre
+        const filterSymbolInput = document.getElementById('filter-symbol');
+        const filterMinPriceInput = document.getElementById('filter-min-price');
+        const applyFiltersBtn = document.getElementById('apply-filters');
+
+        let currentFilters = {
+            symbol: '',
+            minPrice: null,
+            // Stocke l'état actuel des prix pour appliquer les filtres même si la dernière
+            // mise à jour SSE a été ignorée par les filtres
+            currentPrices: {} 
+        };
+
+        applyFiltersBtn.onclick = () => {
+            currentFilters.symbol = filterSymbolInput.value.trim().toUpperCase();
+            currentFilters.minPrice = filterMinPriceInput.value ? parseFloat(filterMinPriceInput.value) : null;
+
+            // Appliquer les filtres à toutes les cartes existantes
+            Object.values(stockElements).forEach(card => {
+                const symbol = card.dataset.symbol;
+                const price = currentFilters.currentPrices[symbol] || 0; // Utiliser le prix stocké
+
+                const isSymbolMatch = !currentFilters.symbol || symbol.includes(currentFilters.symbol);
+                const isPriceMatch = currentFilters.minPrice === null || price >= currentFilters.minPrice;
+
+                card.style.display = (isSymbolMatch && isPriceMatch) ? 'block' : 'none';
+            });
+        }
+
+        function updateStockCard(data) {
+            const { symbol, price, change, percent_change } = data;
+            currentFilters.currentPrices[symbol] = price; // Toujours mettre à jour le prix
+
+            // Vérification des filtres avant de rendre
+            const isSymbolMatch = !currentFilters.symbol || symbol.includes(currentFilters.symbol);
+            const isPriceMatch = currentFilters.minPrice === null || price >= currentFilters.minPrice;
+
+            let stockCard = stockElements[symbol];
+
+            // Si la carte n'existe pas, la créer (uniquement si elle passe les filtres initiaux)
+            if (!stockCard) {
+                stockCard = document.createElement('div');
+                stockCard.className = 'stock-card bg-card-bg p-5 rounded-xl shadow-lg transition-all duration-300';
+                stockCard.id = `stock-${symbol}`;
+                stockCard.dataset.symbol = symbol;
+                stockCard.style.display = (isSymbolMatch && isPriceMatch) ? 'block' : 'none';
+
+                stockCard.innerHTML = `
+                    <h2 class="text-2xl font-bold mb-2 text-primary">${symbol}</h2>
+                    <div class="flex flex-col">
+                        <p class="text-gray-400">Prix:</p>
+                        <p class="text-3xl font-extrabold price"></p>
+                    </div>
+                    <div class="mt-3">
+                        <p class="text-gray-400">Variation (24h):</p>
+                        <p class="text-lg font-semibold change"></p>
+                        <p class="text-sm change-percent"></p>
+                    </div>
+                `;
+                stockQuotesDiv.appendChild(stockCard);
+                stockElements[symbol] = stockCard;
+            } else {
+                // Si la carte existe, mettre à jour sa visibilité basée sur les filtres
+                stockCard.style.display = (isSymbolMatch && isPriceMatch) ? 'block' : 'none';
+                if (stockCard.style.display === 'none') return; // Ne pas animer/mettre à jour si masquée
+            }
+
+
+            const priceSpan = stockCard.querySelector('.price');
+            const changeSpan = stockCard.querySelector('.change');
+            const percentSpan = stockCard.querySelector('.change-percent');
+
+            // Mise à jour des classes et des valeurs
+            const isPositive = change > 0;
+            const isNegative = change < 0;
+            const changeClass = isPositive ? 'text-success' : (isNegative ? 'text-danger' : 'text-gray-400');
+            const sign = isPositive ? '+' : (isNegative ? '' : '');
+
+            // Animation (Retirer les anciennes, ajouter la nouvelle si nécessaire)
+            stockCard.classList.remove('animate-pulse-success', 'animate-pulse-danger');
+            stockCard.classList.add(isPositive ? 'animate-pulse-success' : (isNegative ? 'animate-pulse-danger' : ''));
+            
+            // Appliquer les valeurs
+            priceSpan.textContent = `${price.toFixed(2)} €`;
+            priceSpan.className = `text-3xl font-extrabold ${changeClass} price`;
+
+            changeSpan.textContent = `${sign}${change.toFixed(2)} €`;
+            changeSpan.className = `text-lg font-semibold ${changeClass} change`;
+
+            percentSpan.textContent = `${sign}${percent_change.toFixed(2)} %`;
+            percentSpan.className = `text-sm ${changeClass} change-percent`;
+        }
+
+
+        eventSource.addEventListener('stock_update', (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                updateStockCard(data);
+            } catch (e) {
+                console.error("Erreur de parsing des données de stock:", e);
+            }
+        });
+
+        eventSource.addEventListener('market_alert', (event) => {
+            const data = JSON.parse(event.data);
+
+            const alertBox = document.createElement('div');
+            alertBox.className = 'alert shadow-xl transition-opacity duration-500';
+            
+            // on change la couleur en fonction de si le msg a surged ou dropped
+            if (data.message.includes("augmenté")) {
+                alertBox.style.backgroundColor = "#4CAF50"; // vert (success)
+            } else if (data.message.includes("baissé")) {
+                alertBox.style.backgroundColor = "#f44336"; // rouge (danger)
+            } else {
+                 alertBox.style.backgroundColor = "#ffcc00"; // défaut (primary)
+                 alertBox.style.color = "#121212";
+            }
+
+            alertBox.innerHTML = `
+                <span class="closebtn">&times;</span>
+                ${data.message}
+            `;
+
+            stockAlertsDiv.appendChild(alertBox);
+
+            // bouton fermer
+            alertBox.querySelector('.closebtn').onclick = () => alertBox.style.opacity = '0'; // Utiliser l'opacité pour l'animation
+            
+            // on fait disparaitre l'alerte après 10 secondes
+            setTimeout(() => {
+                alertBox.style.opacity = '0';
+                setTimeout(() => alertBox.remove(), 600); // Supprimer après la transition d'opacité
+            }, 10000);
+        });
+
+        eventSource.onerror = function(err) {
+            console.error("EventSource failed:", err);
+        };
+    </script>
+</body>
+</html>

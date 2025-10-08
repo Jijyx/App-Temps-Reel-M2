@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Notes Collaboratives - Auth & UX</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        // Configuration Tailwind pour un thème sombre
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        'dark-bg': '#1e1e1e',
+                        'card-bg': '#2a2a2a',
+                        'primary': '#ffcc00', // Jaune/Or pour l'accent
+                        'secondary': '#4b5563', // Gris pour les éléments secondaires
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        /* Styles pour les éléments de liste */
+        .note-item {
+            background-color: #374151; /* gray-700 */
+            padding: 1rem;
+            border-radius: 0.75rem; /* rounded-xl */
+            transition: all 0.2s;
+        }
+        .note-item:hover {
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.2);
+            transform: translateY(-1px);
+        }
+        /* Masque la modale par défaut */
+        #customModal.hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body class="bg-dark-bg text-white min-h-screen flex flex-col items-center p-8 font-sans antialiased">
+
+    <!-- Conteneur Principal pour le centrage des deux cartes -->
+    <div class="w-full max-w-4xl flex flex-col items-center">
+
+        <h1 class="text-4xl font-extrabold text-center mb-10 text-primary">📝 Notes Collaboratives</h1>
+
+        <!-- Authentication & Status Section (Carte Séparée et plus compacte) -->
+        <div id="authContainer" class="w-full bg-gray-900 p-6 rounded-2xl shadow-xl mb-8 max-w-sm">
+            <h2 id="authStatusText" class="text-xl font-semibold mb-4 text-center text-primary">Statut: Déconnecté</h2>
+
+            <!-- Wrapper pour le Message Box : Maintient une hauteur fixe (min-h-[2.5rem]) pour éviter le saut de contenu -->
+            <div class="min-h-[2.5rem] mb-4 flex items-center justify-center">
+                <div id="messageBox" 
+                     class="w-full p-2 rounded-xl text-center text-sm font-medium transition duration-300 opacity-0" 
+                     role="alert">
+                </div>
+            </div>
+
+            <!-- Formulaires d'authentification -->
+            <div id="authForms" class="flex flex-col gap-4">
+                <input id="username" type="text" placeholder="Nom d'utilisateur" class="p-3 rounded-xl border border-gray-700 bg-gray-800 text-white placeholder-gray-400 focus:ring-primary focus:border-primary">
+                <input id="password" type="password" placeholder="Mot de passe" class="p-3 rounded-xl border border-gray-700 bg-gray-800 text-white placeholder-gray-400 focus:ring-primary focus:border-primary">
+                <div class="flex justify-center gap-3 mt-2">
+                    <button id="loginBtn" class="w-1/2 bg-primary text-dark-bg font-extrabold px-6 py-3 rounded-xl hover:bg-yellow-500 transition duration-150 transform hover:scale-[1.01]">Connexion</button>
+                    <button id="registerBtn" class="w-1/2 bg-gray-600 font-bold px-6 py-3 rounded-xl hover:bg-gray-500 transition duration-150">Inscription</button>
+                </div>
+            </div>
+
+            <!-- Infos utilisateur connecté -->
+            <div id="authInfo" class="hidden flex flex-col items-center mt-4">
+                <span id="userInfo" class="text-lg text-gray-300 font-medium mb-4">Connecté: </span>
+                <button id="logoutBtn" class="bg-red-600 w-full max-w-[200px] px-4 py-2 rounded-xl font-bold hover:bg-red-700 transition duration-150">Se déconnecter</button>
+            </div>
+        </div>
+
+        <!-- Main Notes Section -->
+        <div class="w-full max-w-2xl bg-card-bg p-8 rounded-2xl shadow-2xl">
+             <!-- Formulaire d'ajout -->
+            <div class="flex gap-3 mb-8 p-4 bg-gray-700 rounded-xl shadow-inner">
+                <input type="text" id="newNote" placeholder="Nouvelle note..."
+                    class="flex-grow p-3 rounded-lg bg-gray-600 text-white placeholder-gray-400 focus:ring-primary focus:border-primary">
+                <button id="addBtn" class="bg-primary text-dark-bg font-bold px-5 py-3 rounded-lg hover:bg-yellow-500 transition duration-150">Ajouter</button>
+            </div>
+            <!-- Liste des notes -->
+            <ul id="notes" class="space-y-4">
+                <li class="text-center text-gray-400 p-4">Chargement des notes ou connectez-vous pour commencer...</li>
+            </ul>
+        </div>
+    </div>
+    
+    <!-- Modale Personnalisée (Remplacement de prompt/confirm) -->
+    <div id="customModal" class="hidden fixed inset-0 z-50 bg-black bg-opacity-70 flex items-center justify-center p-4">
+        <div class="bg-gray-800 p-6 rounded-2xl shadow-2xl w-full max-w-sm">
+            <h2 id="modalTitle" class="text-xl font-bold mb-4 text-primary"></h2>
+            <div id="modalContent" class="mb-6 text-gray-300"></div>
+            <div class="flex justify-end space-x-3">
+                <button id="modalCancelBtn" 
+                        class="px-4 py-2 bg-gray-600 text-white rounded-xl hover:bg-gray-500 transition duration-150">
+                    Annuler
+                </button>
+                <button id="modalConfirmBtn"
+                        class="px-4 py-2 bg-primary text-dark-bg font-bold rounded-xl hover:bg-yellow-500 transition duration-150">
+                    Confirmer
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = "/collaborativeApp/api/notes";
+        const socket = io();
+
+        const notesList = document.getElementById("notes");
+        const input = document.getElementById("newNote");
+        const addBtn = document.getElementById("addBtn");
+        
+        // Éléments Auth
+        const loginBtn = document.getElementById("loginBtn");
+        const registerBtn = document.getElementById("registerBtn");
+        const logoutBtn = document.getElementById("logoutBtn");
+        const authForms = document.getElementById("authForms");
+        const authStatusText = document.getElementById("authStatusText");
+        const userInfo = document.getElementById("userInfo");
+        const authInfo = document.getElementById("authInfo");
+        const usernameInput = document.getElementById("username");
+        const passwordInput = document.getElementById("password");
+
+        // Éléments Message/Modale
+        const messageBox = document.getElementById("messageBox");
+        const modal = document.getElementById("customModal");
+        const modalTitle = document.getElementById("modalTitle");
+        const modalContent = document.getElementById("modalContent");
+        const modalConfirmBtn = document.getElementById("modalConfirmBtn");
+        const modalCancelBtn = document.getElementById("modalCancelBtn");
+
+        let token = localStorage.getItem("jwt");
+
+        // --- Core UI & Messaging ---
+
+        /**
+         * Met à jour l'affichage de l'état de l'authentification.
+         */
+        function updateAuthUI(username = "") {
+            if (token) {
+                authStatusText.textContent = "Statut: Connecté";
+                authForms.classList.add("hidden");
+                authInfo.classList.remove("hidden");
+                userInfo.textContent = `Connecté: ${username || 'Utilisateur'}`;
+            } else {
+                authStatusText.textContent = "Statut: Déconnecté";
+                authForms.classList.remove("hidden");
+                authInfo.classList.add("hidden");
+            }
+        }
+
+        /**
+         * Affiche un message d'erreur ou de succès avec une transition d'opacité.
+         */
+        function displayMessage(text, isError = false) {
+            // Nettoyage avant affichage
+            messageBox.classList.remove("opacity-100", "bg-red-600", "bg-green-600");
+            messageBox.classList.add("opacity-0");
+            
+            // Mise à jour du contenu
+            messageBox.textContent = text;
+            
+            // Applique la couleur et rend visible
+            if (isError) {
+                messageBox.classList.add("bg-red-600");
+            } else {
+                messageBox.classList.add("bg-green-600");
+            }
+            // Force à visible après un court délai pour la transition
+            setTimeout(() => {
+                 messageBox.classList.remove("opacity-0");
+                 messageBox.classList.add("opacity-100");
+            }, 50); 
+
+
+            // Cache après 5 secondes
+            setTimeout(() => {
+                messageBox.classList.remove("opacity-100");
+                messageBox.classList.add("opacity-0");
+            }, 5000);
+        }
+
+        /**
+         * Affiche la modale personnalisée et gère les actions.
+         */
+        function showCustomModal(title, confirmText, contentHtml, danger = false) {
+            return new Promise((resolve) => {
+                modalTitle.textContent = title;
+                modalConfirmBtn.textContent = confirmText;
+                modalContent.innerHTML = contentHtml;
+                
+                // Style du bouton de confirmation
+                modalConfirmBtn.classList.remove("bg-red-600", "hover:bg-red-700", "text-white", "bg-primary", "hover:bg-yellow-500", "text-dark-bg");
+                if (danger) {
+                    modalConfirmBtn.classList.add("bg-red-600", "hover:bg-red-700", "text-white");
+                } else {
+                    modalConfirmBtn.classList.add("bg-primary", "hover:bg-yellow-500", "text-dark-bg");
+                }
+
+                modal.classList.remove("hidden");
+
+                const cleanup = () => {
+                    modalConfirmBtn.onclick = null;
+                    modalCancelBtn.onclick = null;
+                    modal.classList.add("hidden");
+                };
+
+                modalConfirmBtn.onclick = () => {
+                    const editInput = modalContent.querySelector('#modalEditInput');
+                    const result = editInput ? editInput.value.trim() : true; 
+                    
+                    cleanup();
+                    resolve(result);
+                };
+
+                modalCancelBtn.onclick = () => {
+                    cleanup();
+                    resolve(null);
+                };
+            });
+        }
+
+
+        // --- Notes CRUD Operations ---
+
+        async function loadNotes() {
+            try {
+                const res = await fetch(API_URL);
+                const notes = await res.json();
+                displayNotes(notes);
+            } catch (error) {
+                console.error("Erreur lors du chargement initial:", error);
+                notesList.innerHTML = `<li class="text-center text-red-400 p-4">Erreur de connexion au serveur.</li>`;
+            }
+        }
+
+        function displayNotes(notes) {
+            notesList.innerHTML = "";
+            if (notes.length === 0) {
+                notesList.innerHTML = `<li class="text-center text-gray-400 p-4">Aucune note pour le moment. Ajoutez-en une !</li>`;
+                return;
+            }
+            notes.forEach((n) => {
+                const li = document.createElement("li");
+                li.className = "note-item flex justify-between items-center";
+
+                const span = document.createElement("span");
+                span.textContent = n.content;
+                span.className = "text-gray-200 text-lg flex-grow mr-4 break-words";
+
+                const btns = document.createElement("div");
+                btns.className = "flex gap-2 flex-shrink-0";
+
+                const edit = document.createElement("button");
+                edit.textContent = "✏️";
+                edit.className = "bg-yellow-500 px-3 py-2 rounded-lg font-bold hover:bg-yellow-600 transition duration-150";
+                edit.onclick = () => editNote(n);
+
+                const del = document.createElement("button");
+                del.textContent = "🗑️";
+                del.className = "bg-red-500 px-3 py-2 rounded-lg font-bold hover:bg-red-600 transition duration-150";
+                del.onclick = () => deleteNote(n.id);
+
+                btns.appendChild(edit);
+                btns.appendChild(del);
+
+                li.appendChild(span);
+                li.appendChild(btns);
+                notesList.appendChild(li);
+            });
+        }
+
+        async function addNote() {
+            const content = input.value.trim();
+            if (!content) return displayMessage("Note vide !", true);
+
+            try {
+                const res = await fetch(API_URL, {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json",
+                        "Authorization": token ? `Bearer ${token}` : ""
+                    },
+                    body: JSON.stringify({ content }),
+                });
+                
+                if (res.status === 401) {
+                    displayMessage("Connecte-toi pour ajouter une note !", true);
+                    return;
+                }
+                
+                if (!res.ok) {
+                    const data = await res.json();
+                    displayMessage(`Erreur lors de l'ajout: ${data.error || res.statusText}`, true);
+                    return;
+                }
+
+                input.value = "";
+                displayMessage("Note ajoutée avec succès !");
+
+            } catch (err) {
+                console.error(err);
+                displayMessage("Erreur réseau lors de l'ajout.", true);
+            }
+        }
+
+        async function editNote(note) {
+            if (!token) return displayMessage("Connecte-toi pour modifier !", true);
+
+            const editContentHtml = `
+                <p class="mb-3">Veuillez entrer le nouveau contenu pour la note :</p>
+                <input type="text" id="modalEditInput" value="${note.content.replace(/"/g, '&quot;')}"
+                       class="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:ring-primary focus:border-primary" />
+            `;
+
+            const newContent = await showCustomModal("Modifier la Note", "Sauvegarder", editContentHtml);
+
+            if (newContent && newContent.trim() && newContent !== note.content) {
+                try {
+                    const res = await fetch(`${API_URL}/${note.id}`, {
+                        method: "PUT",
+                        headers: {
+                            "Content-Type": "application/json",
+                            "Authorization": `Bearer ${token}`,
+                        },
+                        body: JSON.stringify({ content: newContent }),
+                    });
+                    if (res.ok) {
+                        displayMessage("Note modifiée avec succès !");
+                    } else {
+                        const data = await res.json();
+                        displayMessage(`Erreur lors de la modification: ${data.error || res.statusText}`, true);
+                    }
+                } catch (err) {
+                    displayMessage("Erreur réseau lors de la modification.", true);
+                }
+            }
+        }
+
+        async function deleteNote(id) {
+            if (!token) return displayMessage("Connecte-toi pour supprimer !", true);
+
+            const deleteContentHtml = `<p>Êtes-vous sûr de vouloir supprimer cette note ? Cette action est irréversible.</p>`;
+            const confirmed = await showCustomModal("Confirmer la Suppression", "Oui, Supprimer", deleteContentHtml, true);
+            
+            if (confirmed) {
+                try {
+                    const res = await fetch(`${API_URL}/${id}`, {
+                        method: "DELETE",
+                        headers: { "Authorization": `Bearer ${token}` },
+                    });
+                    if (res.ok) {
+                        displayMessage("Note supprimée avec succès !");
+                    } else {
+                        const data = await res.json();
+                        displayMessage(`Erreur lors de la suppression: ${data.error || res.statusText}`, true);
+                    }
+                } catch (err) {
+                    displayMessage("Erreur réseau lors de la suppression.", true);
+                }
+            }
+        }
+
+
+        // --- Auth Event Handlers ---
+
+        loginBtn.onclick = async () => {
+            const username = usernameInput.value.trim();
+            const password = passwordInput.value.trim();
+            if (!username || !password) return displayMessage("Nom d'utilisateur et mot de passe requis.", true);
+
+            try {
+                const res = await fetch("/collaborativeApp/login", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ username, password }),
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    token = data.token;
+                    localStorage.setItem("jwt", token);
+                    updateAuthUI(username);
+                    displayMessage(`Bienvenue, ${username} !`);
+                } else {
+                    displayMessage(data.error || "Nom d'utilisateur ou mot de passe incorrect.", true);
+                }
+            } catch (error) {
+                displayMessage("Erreur réseau lors de la connexion.", true);
+            }
+        };
+
+        registerBtn.onclick = async () => {
+            const username = usernameInput.value.trim();
+            const password = passwordInput.value.trim();
+            if (!username || !password) return displayMessage("Nom d'utilisateur et mot de passe requis.", true);
+
+            try {
+                const res = await fetch("/collaborativeApp/register", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ username, password }),
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    displayMessage(data.error || "Erreur d'inscription. Peut-être que l'utilisateur existe déjà.", true);
+                } else {
+                    displayMessage("Inscription réussie ! Vous pouvez maintenant vous connecter.");
+                }
+            } catch (error) {
+                 displayMessage("Erreur réseau lors de l'inscription.", true);
+            }
+        };
+
+        logoutBtn.onclick = () => {
+            token = null;
+            localStorage.removeItem("jwt");
+            updateAuthUI();
+            displayMessage("Vous êtes déconnecté.");
+        };
+
+        // --- Socket.IO & Initialisation ---
+        socket.on("notes_updated", (notes) => displayNotes(notes));
+
+        // Start
+        updateAuthUI();
+        loadNotes();
+        addBtn.onclick = addNote;
+    </script>
+</body>
+</html>

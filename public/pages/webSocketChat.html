@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blabla-Blou (Chat WebSocket)</title>
+    <style>
+        body {
+            background-color: #121212;
+            color: #e0e0e0;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .chat-box {
+            width: 100%;
+            max-width: 600px;
+            display: flex;
+            flex-direction: column;
+            background-color: #1e1e1e;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+            height: 80vh;
+        }
+        
+        h1 {
+            color: #ffcc00;
+            margin-bottom: 20px;
+        }
+
+        #messages {
+            flex-grow: 1;
+            padding: 15px;
+            overflow-y: auto;
+            border-bottom: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .message {
+            padding: 6px 10px;
+            margin: 4px 0;
+            border-radius: 10px;
+            max-width: 80%;
+            font-size: 0.95em;
+            line-height: 1.4;
+        }
+
+        .message-self {
+            background-color: #4a4a4a;
+            color: #fff;
+            margin-left: auto;
+            text-align: right;
+        }
+
+        .message-other {
+            background-color: #333;
+            color: #fff;
+            margin-right: auto;
+            text-align: left;
+        }
+
+        .message-info {
+            text-align: center;
+            font-style: italic;
+            color: #ffcc00;
+            font-size: 0.8em;
+        }
+        
+        .username-self { color: #FFCC00; font-weight: bold; }
+        .username-other { color: #90caf9; font-weight: bold; }
+        
+        #input-container {
+            display: flex;
+            padding: 15px;
+        }
+
+        #messageInput {
+            flex: 1;
+            padding: 10px;
+            border-radius: 8px 0 0 8px;
+            border: 1px solid #333;
+            background-color: #2a2a2a;
+            color: #fff;
+            outline: none;
+            transition: border-color 0.2s ease;
+        }
+
+        #messageInput:focus {
+            border-color: #ffcc00;
+        }
+
+        #sendButton {
+            padding: 10px 20px;
+            border-radius: 0 8px 8px 0;
+            border: none;
+            background-color: #ffcc00;
+            color: #000;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background-color 0.2s ease;
+        }
+
+        #sendButton:hover {
+            background-color: #ffd633;
+        }
+        
+        /* Style pour le prompt */
+        #prompt-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            backdrop-filter: blur(5px);
+        }
+        
+        #prompt-box {
+            background: #2a2a2a;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(255, 204, 0, 0.5);
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+    <h1>Blabla-Blou</h1>
+    <div class="chat-box">
+        <div id="messages"></div>
+        <div id="input-container">
+            <input type="text" id="messageInput" placeholder="Ecris ici..." />
+            <button id="sendButton">Envoyer</button>
+        </div>
+    </div>
+    
+    <!-- Overlay pour le pseudo (remplace prompt()) -->
+    <div id="prompt-overlay">
+        <div id="prompt-box">
+            <h2 style="color: #ffcc00; margin-bottom: 20px;">Rejoindre le chat</h2>
+            <input type="text" id="usernameInput" placeholder="Entrez votre pseudo" 
+                style="padding: 10px; border-radius: 5px; border: 1px solid #333; background: #1e1e1e; color: #fff; margin-bottom: 15px; width: 250px;" />
+            <button id="joinButton" 
+                style="padding: 10px 20px; border: none; border-radius: 5px; background: #ffcc00; color: #000; cursor: pointer; font-weight: bold;">
+                Démarrer
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // Configuration WebSocket mise à jour pour le serveur Node.js (Express:3000)
+        // On utilise window.location.host pour s'adapter à l'environnement Canvas
+        const WS_PATH = 'ws://' + window.location.host.split(':')[0] + ':3000/websocket/chat';
+        let ws = null;
+        let username = "Invité";
+
+        const messagesDiv = document.getElementById("messages");
+        const input = document.getElementById("messageInput");
+        const sendButton = document.getElementById("sendButton");
+        
+        // Éléments du prompt
+        const promptOverlay = document.getElementById("prompt-overlay");
+        const usernameInput = document.getElementById("usernameInput");
+        const joinButton = document.getElementById("joinButton");
+        
+        // --- Fonctions d'Affichage ---
+        function appendMessage(data, isSelf = false) {
+            const msg = document.createElement("div");
+            msg.className = "message";
+
+            if (data.type === "message") {
+                // Affichage des messages de chat
+                msg.classList.add(isSelf ? "message-self" : "message-other");
+                const nameClass = isSelf ? "username-self" : "username-other";
+                const nameText = isSelf ? "Vous" : `[${data.name}]`;
+                
+                msg.innerHTML = `<span class="${nameClass}">${nameText}</span> : ${data.text}`;
+                
+            } else if (data.type === "info") {
+                // Affichage des messages d'information (connexion/déconnexion)
+                msg.classList.add("message-info");
+                msg.innerHTML = `--- ℹ️ ${data.text} ---`;
+                
+            }
+            
+            messagesDiv.appendChild(msg);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        // --- Logique WebSocket ---
+        function startChat(pseudo) {
+            username = pseudo || "Invité";
+            promptOverlay.style.display = 'none'; // Cacher l'overlay
+            
+            try {
+                ws = new WebSocket(WS_PATH);
+            } catch (error) {
+                console.error("Erreur lors de la création du WebSocket. Vérifiez le chemin WS_PATH.", error);
+                appendMessage({ type: "info", text: "Erreur de connexion : Chemin WebSocket incorrect." });
+                return;
+            }
+
+            ws.onopen = () => {
+                console.log("Connecté au serveur WebSocket !");
+                // Envoyer le pseudo au serveur pour l'enregistrement
+                ws.send(JSON.stringify({ type: "username", name: username }));
+                input.focus();
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    
+                    // Le serveur n'envoie plus les messages à l'expéditeur,
+                    // mais on garde cette vérification pour les messages d'autres clients.
+                    const isSelf = data.type === 'message' && data.name === username; 
+                    
+                    // On affiche le message si ce n'est pas nous (déjà affiché en local) ou si c'est une info
+                    if (data.type !== 'message' || !isSelf) {
+                        appendMessage(data, isSelf);
+                    }
+                } catch(e) {
+                    console.error("Erreur de parsing du message reçu:", e);
+                }
+            };
+            
+            ws.onclose = () => {
+                appendMessage({ type: "info", text: "Déconnecté du serveur." });
+            };
+            
+            ws.onerror = (err) => {
+                console.error("Erreur WebSocket:", err);
+                appendMessage({ type: "info", text: "Erreur de connexion WebSocket. Le serveur est-il lancé ?" });
+            };
+        }
+
+        // --- Gestion des événements UI ---
+
+        // 1. Gestion du pseudo (remplacement de prompt())
+        joinButton.addEventListener("click", () => {
+            const pseudo = usernameInput.value.trim();
+            if (pseudo) {
+                startChat(pseudo);
+            } else {
+                // CORRECTION: Remplacer alert() par un feedback visuel
+                usernameInput.style.border = '2px solid red'; 
+                setTimeout(() => {
+                    usernameInput.style.border = '1px solid #333'; // Revenir à la couleur initiale
+                }, 1000);
+                usernameInput.focus();
+            }
+        });
+        
+        usernameInput.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") joinButton.click();
+        });
+
+        // 2. Envoi du message
+        sendButton.addEventListener("click", () => {
+            if (input.value.trim() !== "") {
+                const messageText = input.value;
+                
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    const messageData = { type: "message", text: messageText };
+                    ws.send(JSON.stringify(messageData));
+                    
+                    // Correction ici: On affiche immédiatement le message en local, 
+                    // car le serveur ne le renvoie plus à l'expéditeur.
+                    appendMessage({ type: "message", name: username, text: messageText }, true);
+                    
+                    input.value = "";
+                    input.focus();
+                } else {
+                    appendMessage({ type: "info", text: "Vous n'êtes pas connecté(e). Veuillez rafraîchir la page." });
+                }
+            }
+        });
+
+        // on envoie le msg en appuyant sur entrée
+        input.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") sendButton.click();
+        });
+    </script>
+
+</body>
+</html>

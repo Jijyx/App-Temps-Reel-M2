@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Gestionnaire de Tâches</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #121212;
+            color: #eee;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 {
+            text-align: center;
+            color: #ffcc00;
+            margin-bottom: 20px;
+        }
+
+        .task-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            justify-content: center;
+        }
+
+        .task-card {
+            background-color: #1e1e1e;
+            border-radius: 12px;
+            padding: 25px 15px 15px 15px; /* espace en haut pour le badge */
+            width: 220px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+            transition: transform 0.2s, box-shadow 0.2s;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            text-align: center;
+        }
+
+        .task-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .task-card h3 {
+            margin: 0;
+            font-size: 18px;
+            color: #ffcc00;
+        }
+
+        .status-badge {
+            position: absolute;
+            top: -10px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 5px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            color: #121212;
+        }
+
+        .todo { background-color: #f44336; }       /* Rouge */
+        .in-progress { background-color: #ff9800; } /* Orange */
+        .done { background-color: #4caf50; }       /* Vert */
+
+        form {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-bottom: 20px;
+            gap: 10px;
+        }
+
+        input, textarea {
+            padding: 8px;
+            width: 250px;
+            border-radius: 8px;
+            border: none;
+            outline: none;
+            font-size: 14px;
+        }
+
+        input { height: 30px; }
+        textarea { resize: none; height: 60px; }
+
+        button {
+            padding: 8px 15px;
+            border: none;
+            border-radius: 8px;
+            background-color: #ffcc00;
+            color: #121212;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        button:hover { background-color: #e6b800; }
+
+    </style>
+</head>
+<body>
+    <h1>Gestionnaire de Tâches</h1>
+
+    <form id="taskForm">
+        <input type="text" id="taskTitle" placeholder="Titre de la tâche" required>
+        <textarea id="taskDesc" placeholder="Description de la tâche" required></textarea>
+        <button type="submit">Ajouter la tâche</button>
+    </form>
+
+    <div class="task-container" id="taskContainer"></div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const container = document.getElementById('taskContainer');
+            const taskForm = document.getElementById('taskForm'); // 1. Récupérer le formulaire
+            const taskTitleInput = document.getElementById('taskTitle');
+            const taskDescInput = document.getElementById('taskDesc');
+            let lastKnownVersion = -1; // version initiale, pour récupérer tout au début
+
+            // --- Long Polling ---
+            async function pollTasks() {
+                try {
+                    const response = await fetch(`/tasks?version=${lastKnownVersion}`);
+
+                    if (response.status === 200) {
+                        const data = await response.json();
+                        lastKnownVersion = data.version;
+                        renderTasks(data.tasks);
+                    } else if (response.status === 204) {
+                        console.log('Pas de changement (timeout), relance du polling...');
+                    } else {
+                        console.error('Erreur serveur:', response.status);
+                    }
+                } catch (error) {
+                    console.error('Erreur réseau:', error);
+                    await new Promise(resolve => setTimeout(resolve, 2000));
+                } finally {
+                    pollTasks(); // relancer le long polling
+                }
+            }
+
+            // --- Gestion de la création de tâche (POST) ---
+            taskForm.addEventListener('submit', async (e) => { // 2. Écouter la soumission
+                e.preventDefault(); // Empêcher le rechargement de la page
+
+                const titre = taskTitleInput.value;
+                const description = taskDescInput.value;
+
+                try {
+                    const response = await fetch('/tasks', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ titre, description })
+                    });
+
+                    if (response.status === 201) {
+                        console.log('Tâche ajoutée avec succès.');
+
+                        taskTitleInput.value = ''; // Vider les champs
+                        taskDescInput.value = '';
+                        
+                        // MÀJ locale (la meilleure pratique pour les POSTs du client) :
+                        const newTask = await response.json();
+                    } else {
+                        console.error('Erreur lors de l\'ajout de la tâche:', response.status);
+                    }
+                } catch (err) {
+                    console.error('Erreur réseau lors de l\'ajout de la tâche:', err);
+                }
+            });
+
+            // --- Affichage des tâches ---
+            function renderTasks(tasks) {
+                // ... (reste de votre fonction renderTasks inchangé)
+                container.innerHTML = '';
+                tasks.forEach(task => {
+                    // ... (création de la carte, listeners de clic, etc.)
+                    const card = document.createElement('div');
+                    card.className = 'task-card';
+                    card.innerHTML = `
+                        <span class="status-badge ${task.status}">${task.status.replace('-', ' ')}</span>
+                        <h3>${task.titre}</h3>
+                        <p>${task.description}</p>
+                    `;
+
+                    // Cliquer pour changer le statut
+                    card.addEventListener('click', async () => {
+                        const order = ['todo', 'in-progress', 'done'];
+                        let index = order.indexOf(task.status);
+                        let next = order[(index + 1) % order.length];
+
+                        try {
+                            await fetch(`/tasks/${task.id}`, {
+                                method: 'POST',
+                                headers: {'Content-Type': 'application/json'},
+                                body: JSON.stringify({status: next})
+                            });
+                            // La mise à jour sera récupérée automatiquement par le long polling
+                            // car le POST a incrémenté la version et notifié les clients
+                        } catch (err) {
+                            console.error('Erreur mise à jour tâche:', err);
+                        }
+                    });
+
+                    container.appendChild(card);
+                });
+            }
+
+            // Démarrer le long polling
+            pollTasks();
+        });
+    </script>
+
+</body>
+</html>

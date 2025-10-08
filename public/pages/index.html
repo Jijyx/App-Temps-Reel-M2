@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Menu des Exercices</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Configuration de la police Inter */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #121212;
+            color: #eee;
+            margin: 0;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container-card {
+            background-color: #1e1e1e;
+            padding: 40px;
+            border-radius: 16px; /* Arrondi plus prononcé */
+            box-shadow: 0 15px 30px rgba(0, 0, 0, 0.6); /* Ombre forte */
+            text-align: center;
+            width: 100%;
+            max-width: 900px;
+        }
+        h1 {
+            color: #ffcc00;
+            margin-bottom: 30px;
+            font-size: 2.5rem;
+            font-weight: 700;
+        }
+        .btn-list {
+            display: grid;
+            gap: 20px;
+            grid-template-columns: repeat(1, 1fr); /* 1 colonne par défaut */
+        }
+
+        /* Deux colonnes pour les écrans de taille moyenne et plus */
+        @media (min-width: 768px) {
+            .btn-list {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+        
+        /* Style spécifique aux cartes */
+        .card-link {
+            display: block;
+            padding: 20px;
+            border-radius: 12px;
+            background-color: #2a2a2a; /* Fond de carte légèrement plus clair */
+            text-decoration: none;
+            color: #eee;
+            text-align: left;
+            transition: all 0.2s ease-in-out;
+            border: 2px solid transparent;
+        }
+        .card-link:hover {
+            background-color: #333333;
+            border-color: #ffcc00; /* Bordure jaune au survol */
+            transform: translateY(-3px); /* Effet de soulèvement */
+            box-shadow: 0 8px 15px rgba(255, 204, 0, 0.15);
+        }
+        .card-link:active {
+             transform: translateY(0);
+        }
+        .card-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: #ffcc00; /* Titre en jaune */
+            margin-bottom: 4px;
+        }
+        .card-description {
+            font-size: 0.9rem;
+            color: #b0b0b0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-card">
+        <h1>Liste des Exercices</h1>
+        <div class="btn-list">
+            
+            <!-- Carte 1: Long Polling -->
+            <a href="/longPolling" class="card-link">
+                <div class="card-title">Exercice 1: Long Polling</div>
+                <div class="card-description">Mise en œuvre d'un gestionnaire de tâches asynchrone pour simuler des mises à jour en temps quasi-réel.</div>
+            </a>
+            
+            <!-- Carte 2: SSE -->
+            <a href="/streamingDonneesSSE" class="card-link">
+                <div class="card-title">Exercice 2: Server-Sent Events (SSE)</div>
+                <div class="card-description">Streaming de données unidirectionnel pour les notifications ou les flux d'informations.</div>
+            </a>
+            
+            <!-- Carte 3: WebSocket -->
+            <a href="/webSocketChat" class="card-link">
+                <div class="card-title">Exercice 3: Chat Bidirectionnel (WebSocket)</div>
+                <div class="card-description">Développement d'une application de chat simple avec une connexion persistante.</div>
+            </a>
+            
+            <!-- Carte 4: Socket.IO Multi-Room -->
+            <a href ="/multiRoomChat" class="card-link">
+                <div class="card-title">Exercice 4: Chat Multi-Salon (Socket.IO)</div>
+                <div class="card-description">Extension du chat pour gérer plusieurs salons de discussion en temps réel.</div>
+            </a>
+            
+            <!-- Carte 5: Notes Collaboratives -->
+            <a href="/collaborativeApp" class="card-link">
+                <div class="card-title">Exercice 5: Notes Collaboratives</div>
+                <div class="card-description">Création d'une application de prise de notes en temps réel avec édition collaborative.</div>
+            </a>
+            <!-- Ajouter d'autres cartes ici au fur et à mesure des exercices -->
+        </div>
+    </div>
+</body>
+</html>

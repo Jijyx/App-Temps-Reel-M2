@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Multi-Salons Socket.IO (Exo 5)</title>
+    <!-- Inclure Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Configuration de la police Inter */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #121212; /* Applique le fond sombre exact demandé */
+        }
+        /* Masquer la barre de défilement pour un look plus propre */
+        #messages::-webkit-scrollbar {
+            display: none;
+        }
+        #messages {
+            -ms-overflow-style: none;  /* IE and Edge */
+            scrollbar-width: none;  /* Firefox */
+        }
+    </style>
+</head>
+<body class="text-gray-100 flex flex-col items-center justify-center min-h-screen p-4">
+
+    <!-- Conteneur Principal du Chat -->
+    <div id="chat-container" class="w-full max-w-2xl bg-gray-800 p-6 rounded-xl shadow-2xl transition-all duration-300">
+        <h1 class="text-3xl font-bold text-yellow-400 mb-6 text-center">Chat Multi-Salons</h1>
+
+        <!-- Section de Connexion -->
+        <div id="join-section">
+            <h2 class="text-xl font-semibold text-gray-200 mb-4">Rejoindre un Salon</h2>
+            <form id="form-join" class="flex flex-col sm:flex-row gap-2">
+                <input id="username-input" autocomplete="off" placeholder="Votre pseudo" required
+                    class="flex-1 p-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500" />
+                <input id="room-input" autocomplete="off" placeholder="Nom du salon (ex: général, dev)" required
+                    class="flex-1 p-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500" />
+                <button type="submit"
+                    class="p-3 bg-green-600 text-white font-semibold rounded-lg hover:bg-green-700 transition duration-150 shadow-md">
+                    Rejoindre
+                </button>
+            </form>
+        </div>
+
+        <!-- Section de Chat (Masquée initialement) -->
+        <div id="chat-section" class="hidden mt-6">
+            <p class="mb-3 text-sm text-gray-400">
+                Vous êtes dans le salon : <strong id="current-room-display" class="text-yellow-400 font-bold"></strong>
+            </p>
+            
+            <!-- Zone d'affichage des messages -->
+            <ul id="messages" class="h-80 bg-gray-700/50 border border-gray-700 rounded-lg p-3 overflow-y-scroll mb-4 shadow-inner">
+                <!-- Messages s'affichent ici -->
+            </ul>
+            
+            <!-- Formulaire d'envoi de message -->
+            <form id="form-chat" class="flex gap-2">
+                <input id="message-input" autocomplete="off" placeholder="Votre message..."
+                    class="flex-1 p-3 bg-gray-700 border border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500" />
+                <button type="submit"
+                    class="p-3 bg-blue-600 text-white font-semibold rounded-lg hover:bg-blue-700 transition duration-150 shadow-md">
+                    Envoyer
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Script Client Socket.IO -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script>
+        const socket = io();
+
+        const joinSection = document.getElementById('join-section');
+        const chatSection = document.getElementById('chat-section');
+        const formJoin = document.getElementById('form-join');
+        const usernameInput = document.getElementById('username-input');
+        const roomInput = document.getElementById('room-input');
+        const currentRoomDisplay = document.getElementById('current-room-display');
+
+        const formChat = document.getElementById('form-chat');
+        const messageInput = document.getElementById('message-input');
+        const messages = document.getElementById('messages');
+
+        let currentUsername = '';
+        let currentRoom = '';
+
+        // Fonction pour ajouter un message à la liste des messages
+        function appendMessage(content, className = '') {
+            const item = document.createElement('li');
+            item.className = `p-2 my-1 rounded-lg ${className}`;
+            item.innerHTML = content;
+            messages.appendChild(item);
+            messages.scrollTop = messages.scrollHeight; // Scroll automatique
+        }
+
+        // 1. Gérer la soumission du formulaire de connexion
+        formJoin.addEventListener('submit', (e) => {
+            e.preventDefault(); // Empêche le rechargement de la page
+            if (usernameInput.value && roomInput.value) {
+                currentUsername = usernameInput.value;
+                currentRoom = roomInput.value;
+                currentRoomDisplay.textContent = currentRoom;
+
+                // Émet un événement 'join room' vers le serveur avec le pseudo et le nom du salon.
+                socket.emit('join room', { username: currentUsername, room: currentRoom });
+
+                joinSection.classList.add('hidden'); // Cache la section de connexion
+                chatSection.classList.remove('hidden'); // Affiche la section de chat
+            }
+        });
+
+        // 2. Gérer la soumission du formulaire de chat
+        formChat.addEventListener('submit', (e) => {
+            e.preventDefault();
+            if (messageInput.value){
+                // Emet un event "chat_message" vers le serveur avec le message
+                socket.emit('chat_message', { 
+                    username: currentUsername, 
+                    room: currentRoom, 
+                    message: messageInput.value 
+                });
+                // Affiche le message dans le chat direct
+                appendMessage(
+                    `<span class="text-yellow-400 font-semibold">${currentUsername}</span> : ${messageInput.value}`,
+                    'bg-gray-600/50 self-end text-right'
+                );
+                messageInput.value = ''; // Vide le champ de saisie
+                messageInput.focus(); // Remet le focus sur le champ de saisie
+            }
+        });
+
+        // 3. Écouter les messages entrants du serveur
+        socket.on('chat_message', (data) => {
+            // N'afficher que si le message ne vient PAS de l'utilisateur actuel
+            if (data.username !== currentUsername) {
+                appendMessage(
+                    `<span class="text-blue-400 font-semibold">${data.username}</span> : ${data.message}`,
+                    'bg-gray-700/50 self-start text-left'
+                );
+            }
+        });
+
+        // 4. Écouter les notifications de connexion/déconnexion dans le salon
+        socket.on('room_message', (data) => {
+            appendMessage(
+                `--- ℹ️ ${data.message} ---`,
+                'text-center text-gray-400 italic text-sm'
+            );
+        });
+
+        // 5. Statuts de connexion
+        socket.on('connect', () => {
+            console.log('Connecté au serveur Socket.IO');
+        });
+
+        socket.on('disconnect', () => {
+            console.log('Déconnecté du serveur Socket.IO');
+            // Informer les autres utilisateurs de la déconnexion
+            appendMessage(
+                `--- ℹ️ ${socket.data.username} a quitté le salon ${socket.data.room} ---`,
+                'text-center text-red-400 italic text-sm'
+            );
+            // Réinitialiser l'interface en cas de déconnexion
+            joinSection.classList.remove('hidden');
+            chatSection.classList.add('hidden');
+            messages.innerHTML = '';
+        });
+    </script>
+</body>
+</html>
